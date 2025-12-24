@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio2Face 3D Avatar</title>
+    <!-- Three.js via CDN -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.182.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.182.0/examples/jsm/"
+        }
+    }
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            max-width: 400px;
+            backdrop-filter: blur(10px);
+        }
+
+        h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 10px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        #status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        #status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            display: block;
+        }
+
+        #status.error {
+            background: #ffebee;
+            color: #c62828;
+            display: block;
+        }
+
+        #status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            display: block;
+        }
+
+        .info-text {
+            font-size: 12px;
+            color: #777;
+            margin-top: 5px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .toggle-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 10px;
+            background: #f0f0f0;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .toggle-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container"></div>
+        <div id="controls" style="margin-top: 3rem;">
+            <h2>🎭 Audio2Face 3D</h2>
+            
+            <div class="toggle-group">
+                <div class="toggle-btn active" onclick="switchMode('test')">测试模式</div>
+                <div class="toggle-btn" onclick="switchMode('api')">API 模式</div>
+            </div>
+
+            <div class="form-group">
+                <label>选择模型</label>
+                <select id="modelSelect">
+                    <option value="claire">Claire</option>
+                    <option value="mark">Mark</option>
+                    <option value="james">James</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="apiKeyGroup" style="display: none;">
+                <label>API Key</label>
+                <input type="text" id="apiKey" placeholder="nvapi-xxx...">
+                <div class="info-text">从 NVIDIA API Catalog 获取</div>
+            </div>
+
+            <div class="form-group">
+                <label>上传音频 (WAV/MP3)</label>
+                <input type="file" id="audioFile" accept="audio/*">
+            </div>
+
+            <button id="startBtn" onclick="startAnimation()">
+                开始生成动画
+            </button>
+
+            <div id="status"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // 配置
+        const API_BASE_URL = 'http://localhost:3000';
+        let currentMode = 'test'; // 'test' 或 'api'
+
+        // Three.js 场景设置
+        let scene, camera, renderer, head;
+        let blendShapeTargets = {};
+        let currentAnimation = null;
+        let audioElement = null;
+
+        // 初始化 Three.js 场景
+        function initScene() {
+            //创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+            //镜头
+            camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 1, 1000);
+            camera.position.z = 8;
+            camera.position.y = 2.2;
+            camera.position.x = -2;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // 添加光源
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            const pointLight = new THREE.PointLight(0xffffff, 0.5);
+            pointLight.position.set(-5, 5, 5);
+            scene.add(pointLight);
+
+            // 创建3D头像模型
+            createHead();
+
+            // 窗口调整
+            window.addEventListener('resize', onWindowResize);
+            
+            animate();
+        }
+
+        function createHead() {
+            const modelSelect = document.getElementById('modelSelect');
+            const selectedModel = modelSelect.value;
+
+            // 从服务器 API 获取模型配置
+            fetch(`${API_BASE_URL}/api/model-config/${selectedModel}`)
+                .then(response => response.json())
+                .then(result => {
+                    if (!result.success) {
+                        throw new Error(result.error || '获取模型配置失败');
+                    }
+                    const blendshapeId = result.data.blendshape_id;
+                    const modelPath = `/models/${blendshapeId}.glb`;
+                    console.log(`尝试加载模型文件: ${modelPath}`);
+                    console.log(result);
+
+                    // 先检查模型文件是否存在
+                    fetch(modelPath, { method: 'HEAD' })
+                        .then(response => {
+                            if (!response.ok) {
+                                // 提供更详细的错误信息
+                                const errorMsg = `3D 模型文件不存在: ${blendshapeId}.glb\n\n` +
+                                    `说明：YAML 配置文件（config_claire.yml 等）只是配置文件，不是 3D 模型文件。\n` +
+                                    `您需要将实际的 .glb 格式的 3D 模型文件放置在项目的 models 目录中。\n\n` +
+                                    `需要的文件: ${blendshapeId}.glb\n` +
+                                    `文件位置: ./models/${blendshapeId}.glb\n\n` +
+                                    `这些模型文件通常需要从 NVIDIA Audio2Face 或相关资源获取。`;
+                                throw new Error(errorMsg);
+                            }
+                            
+                            const loader = new GLTFLoader();
+                            loader.load(modelPath, (gltf) => {
+                                if (head) {
+                                    scene.remove(head); // 移除当前模型
+                                }
+                                head = gltf.scene;
+                                head.scale.set(2.0, 2.0, 2.0); // 调整模型大小
+                                scene.add(head);
+                                
+                                // 初始化 userData，用于存储动画控制对象
+                                initializeHeadUserData(head);
+                                
+                                showStatus(`模型 ${blendshapeId} 加载成功`, 'success');
+                            }, undefined, (error) => {
+                                console.error('加载模型失败:', error);
+                                showStatus('加载模型失败: ' + error.message, 'error');
+                                // 创建占位几何体
+                                createPlaceholderHead();
+                            });
+                        })
+                        .catch(error => {
+                            console.error('模型文件检查失败:', error);
+                            showStatus(error.message, 'error');
+                            // 创建占位几何体
+                            createPlaceholderHead();
+                        });
+                })
+                .catch(error => {
+                    console.error('获取模型配置失败:', error);
+                    showStatus('获取模型配置失败: ' + error.message, 'error');
+                });
+        }
+
+        document.getElementById('modelSelect').addEventListener('change', createHead);
+
+        // 创建占位几何体（当模型文件不存在时）
+        function createPlaceholderHead() {
+            if (head) {
+                scene.remove(head);
+            }
+            
+            // 创建一个简单的头部占位几何体
+            const geometry = new THREE.SphereGeometry(1, 32, 32);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0xffdbac,
+                transparent: true,
+                opacity: 0.8
+            });
+            head = new THREE.Mesh(geometry, material);
+            head.scale.set(1.5, 1.5, 1.5);
+            scene.add(head);
+            
+            // 添加眼睛
+            const eyeGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+            const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.3, 0.2, 0.8);
+            head.add(leftEye);
+            
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.3, 0.2, 0.8);
+            head.add(rightEye);
+            
+            // 添加嘴巴
+            const mouthGeometry = new THREE.TorusGeometry(0.15, 0.05, 8, 16);
+            const mouthMaterial = new THREE.MeshPhongMaterial({ color: 0x8b0000 });
+            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+            mouth.position.set(0, -0.3, 0.8);
+            mouth.rotation.x = Math.PI / 2;
+            head.add(mouth);
+            
+            // 初始化 userData
+            initializeHeadUserData(head);
+            
+            console.log('已创建占位几何体（模型文件不存在）');
+        }
+
+        //head.userdata.mouth, leftEye, rightEye, leftBrow, rightBrow
+        // 初始化 head.userData，用于存储动画控制对象
+        function initializeHeadUserData(headObj) {
+            if (!headObj.userData) {
+                headObj.userData = {};
+            }
+            
+            // 尝试从模型中查找这些对象，如果找不到则创建占位对象
+            const findChildByName = (parent, name) => {
+                // console.log(`正在查找对象: ${name} 在父对象: ${parent.name || 'unnamed'}`);
+                if (parent.name && parent.name.toLowerCase().includes(name.toLowerCase())) {
+                    console.log(`找到对象: ${parent.name} 对应 ${name}`);
+                    return parent;
+                }
+                for (let child of parent.children) {
+                    const found = findChildByName(child, name);
+                    if (found) return found;
+                }
+                return null;
+            };
+            
+            // 查找或创建嘴巴对象
+            headObj.userData.mouth = findChildByName(headObj, 'mouth') || 
+                findChildByName(headObj, 'jaw') || 
+                headObj.children.find(child => child.name && child.name.includes('Mouth')) ||
+                headObj; // 如果找不到，使用 head 本身
+            
+            // 查找或创建眼睛对象
+            headObj.userData.leftEye = findChildByName(headObj, 'lefteye') || 
+                findChildByName(headObj, 'eyeleft') ||
+                headObj.children.find(child => child.name && (child.name.includes('LeftEye') || child.name.includes('EyeL'))) ||
+                headObj;
+            
+            headObj.userData.rightEye = findChildByName(headObj, 'righteye') || 
+                findChildByName(headObj, 'eyeright') ||
+                headObj.children.find(child => child.name && (child.name.includes('RightEye') || child.name.includes('EyeR'))) ||
+                headObj;
+            
+            // 查找或创建眉毛对象
+            headObj.userData.leftBrow = findChildByName(headObj, 'leftbrow') || 
+                findChildByName(headObj, 'browleft') ||
+                headObj.children.find(child => child.name && child.name.includes('BrowL')) ||
+                headObj;
+            
+            headObj.userData.rightBrow = findChildByName(headObj, 'rightbrow') || 
+                findChildByName(headObj, 'browright') ||
+                headObj.children.find(child => child.name && child.name.includes('BrowR')) ||
+                headObj;
+                
+            console.log('Head userData 初始化完成:', headObj.userData);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 基础展示动画
+            // if (head && !currentAnimation) {
+            //     head.rotation.y += 0.002;                
+            // }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 切换模式
+        window.switchMode = function switchMode(mode) {
+            currentMode = mode;
+
+            const btns = document.querySelectorAll('.toggle-btn');
+            btns.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const apiKeyGroup = document.getElementById('apiKeyGroup');
+            apiKeyGroup.style.display = mode === 'api' ? 'block' : 'none';
+        };
+
+        // 状态显示函数
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = type;
+        }
+
+        // 主函数:开始动画生成
+        window.startAnimation = async function startAnimation() {
+            const audioFile = document.getElementById('audioFile').files[0];
+            const selectedModel = document.getElementById('modelSelect').value; // 获取用户选择的模型
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const startBtn = document.getElementById('startBtn');
+
+            if (!audioFile) {
+                showStatus('请上传音频文件', 'error');
+                return;
+            }
+
+            if (currentMode === 'api' && !apiKey) {
+                showStatus('API 模式需要输入 API Key', 'error');
+                return;
+            }
+
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<span class="loading"></span>处理中...';
+            showStatus('正在处理音频...', 'info');
+
+            try {
+                const formData = new FormData();
+                formData.append('audio', audioFile);
+                formData.append('model', selectedModel); // 将用户选择的模型发送到后端
+                if (currentMode === 'api') {
+                    formData.append('apiKey', apiKey);
+                }
+
+                const endpoint = currentMode === 'test'
+                    ? `${API_BASE_URL}/api/test-animation`
+                    : `${API_BASE_URL}/api/generate-animation`;
+
+                showStatus('正在调用后端服务...', 'info');
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || '服务器错误');
+                }
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || '处理失败');
+                }
+
+                showStatus('动画数据接收成功,开始播放...', 'success');
+                console.log('动画数据接收成功:', result.data);
+
+                // 播放动画
+                await playAnimationWithAudio(result.data, audioFile);
+            } catch (error) {
+                console.error('错误:', error);
+                showStatus('错误: ' + error.message, 'error');
+            } finally {
+                startBtn.disabled = false;
+                startBtn.innerHTML = '开始生成动画';
+            }
+        };
+
+        // 播放动画和音频
+        async function playAnimationWithAudio(animationData, audioFile) {
+            // 创建音频元素
+            if (audioElement) {
+                audioElement.pause();
+            }
+            
+            audioElement = new Audio(URL.createObjectURL(audioFile));
+            
+            // 准备动画数据
+            const blendshapes = animationData.blendshapes || [];
+            const duration = animationData.duration || 3.0;
+
+            // 按时间排序
+            blendshapes.sort((a, b) => a.time - b.time);
+
+            // 播放音频
+            audioElement.play();
+
+            const startTime = Date.now();
+            currentAnimation = true;
+
+            function updateAnimation() {
+                const elapsed = (Date.now() - startTime) / 1000; // 秒
+
+                if (elapsed >= duration || !currentAnimation) {
+                    // 动画结束,重置
+                    resetHeadAnimation();
+                    currentAnimation = null;
+                    showStatus('动画播放完成', 'success');
+                    return;
+                }
+
+                // 找到当前时间对应的 blendshape 值
+                const currentBlendshapes = blendshapes.filter(
+                    bs => Math.abs(bs.time - elapsed) < 0.1
+                );
+
+                // 应用 blendshapes
+                applyBlendshapes(currentBlendshapes);
+
+                requestAnimationFrame(updateAnimation);
+            }
+
+            updateAnimation();
+        }
+
+        // 应用 blendshape 动画
+        function applyBlendshapes(blendshapes) {
+            if (!head || !head.userData) {
+                return; // 如果 head 或 userData 不存在，直接返回
+            }
+            
+            const { mouth, leftEye, rightEye, leftBrow, rightBrow } = head.userData;
+            
+            // 确保所有对象都存在
+            if (!mouth || !leftEye || !rightEye || !leftBrow || !rightBrow) {
+                console.warn('某些动画控制对象未找到，跳过动画应用');
+                return;
+            }
+
+            blendshapes.forEach(bs => {
+                const { name, value } = bs;
+
+                try {
+                    switch(name) {
+                        case 'jawOpen':
+                            // 嘴巴开合
+                            const scale = 1 + value * 1.5;
+                            if (mouth && mouth.scale) {
+                                mouth.scale.set(scale, scale, 1);
+                            }
+                            break;
+                        
+                        case 'mouthSmile':
+                            // 微笑
+                            if (mouth && mouth.rotation) {
+                                mouth.rotation.x = Math.PI - value * 0.3;
+                            }
+                            break;
+                        
+                        case 'eyeBlinkLeft':
+                            // 左眼眨眼
+                            if (leftEye && leftEye.scale) {
+                                leftEye.scale.y = 1 - value * 0.8;
+                            }
+                            break;
+                        
+                        case 'eyeBlinkRight':
+                            // 右眼眨眼
+                            if (rightEye && rightEye.scale) {
+                                rightEye.scale.y = 1 - value * 0.8;
+                            }
+                            break;
+                        
+                        case 'browInnerUp':
+                            // 眉毛上扬
+                            if (leftBrow && leftBrow.position) {
+                                leftBrow.position.y = 0.5 + value * 0.1;
+                            }
+                            if (rightBrow && rightBrow.position) {
+                                rightBrow.position.y = 0.5 + value * 0.1;
+                            }
+                            break;
+                    }
+                } catch (error) {
+                    console.warn(`应用 blendshape ${name} 时出错:`, error);
+                }
+            });
+
+            // 添加轻微的头部运动
+            if (head && head.rotation) {
+                head.rotation.x = Math.sin(Date.now() * 0.001) * 0.05;
+                head.rotation.z = Math.cos(Date.now() * 0.0015) * 0.03;
+            }
+        }
+
+        // 重置动画
+        function resetHeadAnimation() {
+            if (!head || !head.userData) {
+                return;
+            }
+            
+            const { mouth, leftEye, rightEye, leftBrow, rightBrow } = head.userData;
+            
+            if (mouth) {
+                if (mouth.scale) mouth.scale.set(1, 1, 1);
+                if (mouth.rotation) mouth.rotation.x = Math.PI;
+            }
+            if (leftEye && leftEye.scale) leftEye.scale.set(1, 1, 1);
+            if (rightEye && rightEye.scale) rightEye.scale.set(1, 1, 1);
+            if (leftBrow && leftBrow.position) leftBrow.position.y = 0.5;
+            if (rightBrow && rightBrow.position) rightBrow.position.y = 0.5;
+            if (head.rotation) {
+                head.rotation.x = 0;
+                head.rotation.z = 0;
+            }
+        }
+
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            initScene();
+            
+            // 测试后端连接
+            fetch(`${API_BASE_URL}/api/health`)
+                .then(res => res.json())
+                .then(data => {
+                    console.log('✅ 后端服务连接成功:', data);
+                })
+                .catch(err => {
+                    console.error('❌ 后端服务连接失败:', err);
+                    showStatus('警告: 无法连接到后端服务 (localhost:3000)', 'error');
+                });
+        });
+    </script>
+</body>
+</html>
+
